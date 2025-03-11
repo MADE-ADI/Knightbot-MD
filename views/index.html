@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WhatsApp Bot Manager</title>
+        <style>
+            body { 
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+            .container { text-align: center; }
+            .bot-list {
+                margin: 20px auto;
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .bot-list th, .bot-list td {
+                padding: 10px;
+                border: 1px solid #ddd;
+            }
+            .bot-list tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .status-active {
+                color: green;
+                font-weight: bold;
+            }
+            .status-offline {
+                color: red;
+            }
+            button {
+                padding: 8px 16px;
+                margin: 5px;
+                cursor: pointer;
+            }
+            .action-btn {
+                padding: 5px 10px;
+                margin: 2px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>WhatsApp Bot Manager</h1>
+            <div>
+                <input type="text" id="sessionName" placeholder="Enter Bot Name">
+                <button onclick="addNewBot()">Add New Bot</button>
+            </div>
+            <div id="qrcode"></div>
+            <div class="status"></div>
+            <table class="bot-list">
+                <thead>
+                    <tr>
+                        <th>Bot Name</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="botsList">
+                </tbody>
+            </table>
+        </div>
+
+        <script>
+            async function loadBots() {
+                const response = await fetch('/list-bots');
+                const bots = await response.json();
+                const botsList = document.getElementById('botsList');
+                botsList.innerHTML = '';
+                
+                bots.forEach(bot => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${bot.name}</td>
+                        <td class="status-${bot.status}">${bot.status}</td>
+                        <td>
+                            <button class="action-btn" onclick="startBot('${bot.name}')">Start</button>
+                            <button class="action-btn" onclick="stopBot('${bot.name}')">Stop</button>
+                            <button class="action-btn" onclick="deleteBot('${bot.name}')">Delete</button>
+                        </td>
+                    `;
+                    botsList.appendChild(row);
+                });
+            }
+
+            async function addNewBot() {
+                const sessionName = document.getElementById('sessionName').value;
+                if (!sessionName) {
+                    alert('Please enter a bot name');
+                    return;
+                }
+                
+                document.querySelector('.status').textContent = 'Starting bot...';
+                const response = await fetch('/start-bot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionName })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.querySelector('#qrcode').innerHTML = 
+                        '<img src="' + data.qrPath + '?' + new Date().getTime() + '" alt="QR Code">';
+                    document.querySelector('.status').textContent = 'Scan QR Code with WhatsApp';
+                } else {
+                    document.querySelector('.status').textContent = 'Error: ' + data.error;
+                }
+            }
+
+            async function startBot(botName) {
+                await fetch('/bot-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'start', botName })
+                });
+                loadBots();
+            }
+
+            async function stopBot(botName) {
+                await fetch('/bot-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop', botName })
+                });
+                loadBots();
+            }
+
+            async function deleteBot(botName) {
+                if (confirm('Are you sure you want to delete this bot?')) {
+                    await fetch('/bot-action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete', botName })
+                    });
+                    loadBots();
+                }
+            }
+
+            // Load bots when page loads
+            loadBots();
+            // Refresh bot list every 30 seconds
+            setInterval(loadBots, 30000);
+        </script>
+    </body>
+</html>
