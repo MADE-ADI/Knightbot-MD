@@ -52,27 +52,68 @@ const store = makeInMemoryStore({
     })
 })
 
-let phoneNumber = "911234567890"
-let owner = JSON.parse(fs.readFileSync('./database/owner.json'))
+let phoneNumber = "" // Clear the phone number
+
+// Modify owner loading logic
+let owner;
+if (botId) {
+    const ownerPath = `./bot-sessions/${botId}/config/owner.json`;
+    // Create default owner file if not exists
+    if (!fs.existsSync(ownerPath)) {
+        fs.writeFileSync(ownerPath, JSON.stringify([], null, 2));
+    }
+    owner = JSON.parse(fs.readFileSync(ownerPath));
+} else {
+    owner = JSON.parse(fs.readFileSync('./database/owner.json'));
+}
 
 global.botname = "KNIGHT BOT"
 global.themeemoji = "•"
 
-const pairingCode = !!phoneNumber || process.argv.includes("--pairing-code")
+const pairingCode = false // Disable pairing code
 const useMobile = process.argv.includes("--mobile")
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const question = (text) => new Promise((resolve) => rl.question(text, resolve))
+
+// Check for bot-specific configuration
+const botId = process.env.BOT_ID;
+let customConfig = {};
+
+if (process.argv.length > 2) {
+  // Look for --config argument
+  const configArg = process.argv.find(arg => arg.startsWith('--config='));
+  if (configArg) {
+    try {
+      customConfig = JSON.parse(configArg.slice(9));
+      console.log("Running with custom config:", customConfig);
+      
+      // Apply custom configurations
+      if (customConfig.botname) global.botname = customConfig.botname;
+      if (customConfig.themeemoji) global.themeemoji = customConfig.themeemoji;
+      // Apply other custom configs as needed
+    } catch (error) {
+      console.error("Error parsing custom config:", error);
+    }
+  }
+}
+
+// Use bot-specific session directory if a botId is provided
+const sessionDir = botId ? `./bot-sessions/${botId}` : './session';
          
-async function startXeonBotInc() {
-    let { version, isLatest } = await fetchLatestBaileysVersion()
-    const { state, saveCreds } = await useMultiFileAuthState(`./session`)
+async function startXeonBotInc(botId, qrCallback, connectedCallback) {
+    if (!botId) throw new Error('Bot ID is required');
+    
+    const sessionDir = `./bot-sessions/${botId}`;
+    let { version, isLatest } = await fetchLatestBaileysVersion();
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const msgRetryCounterCache = new NodeCache()
 
     const XeonBotInc = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: !pairingCode,
+        printQRInTerminal: false, // Disable terminal QR
+        qrTimeout: 0, // No timeout for QR
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         auth: {
             creds: state.creds,
@@ -90,6 +131,15 @@ async function startXeonBotInc() {
     })
 
     store.bind(XeonBotInc.ev)
+
+    // QR code handling
+    if (!state.creds.registered) {
+        XeonBotInc.ev.on('connection.update', async ({ qr }) => {
+            if (qr) {
+                qrCallback && qrCallback(qr);
+            }
+        });
+    }
 
     // Message handling
     XeonBotInc.ev.on('messages.upsert', async chatUpdate => {
@@ -167,26 +217,12 @@ async function startXeonBotInc() {
 
     XeonBotInc.serializeM = (m) => smsg(XeonBotInc, m, store)
 
-    // Handle pairing code
+    // Comment out or remove the pairing code logic
+    /* 
     if (pairingCode && !XeonBotInc.authState.creds.registered) {
-        if (useMobile) throw new Error('Cannot use pairing code with mobile api')
-
-        let phoneNumber
-        if (!!global.phoneNumber) {
-            phoneNumber = global.phoneNumber
-        } else {
-            phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFor example: +917023951514 : `)))
-        }
-
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '')
-
-        // Request pairing code
-        setTimeout(async () => {
-            let code = await XeonBotInc.requestPairingCode(phoneNumber)
-            code = code?.match(/.{1,4}/g)?.join("-") || code
-            console.log(chalk.black(chalk.bgGreen(`Your Pairing Code : `)), chalk.black(chalk.white(code)))
-        }, 3000)
+        // pairing code logic here
     }
+    */
 
     // Connection handling
     XeonBotInc.ev.on('connection.update', async (s) => {
@@ -219,6 +255,7 @@ async function startXeonBotInc() {
             console.log(chalk.magenta(`${global.themeemoji || '•'} WA NUMBER: ${owner}`))
             console.log(chalk.magenta(`${global.themeemoji || '•'} CREDIT: MR UNIQUE HACKER`))
             console.log(chalk.green(`${global.themeemoji || '•'} 🤖 Bot Connected Successfully! ✅`))
+            connectedCallback && connectedCallback();
         }
         if (
             connection === "close" &&
@@ -255,9 +292,44 @@ async function startXeonBotInc() {
         await handleStatus(XeonBotInc, status);
     });
 
+    // Add function to manage owners
+    const updateOwner = async (jid, action = 'add') => {
+        const ownerPath = botId 
+            ? `./bot-sessions/${botId}/config/owner.json`
+            : './database/owner.json';
+        
+        let owners = JSON.parse(fs.readFileSync(ownerPath));
+        
+        if (action === 'add') {
+            if (!owners.includes(jid)) {
+                owners.push(jid);
+            }
+        } else if (action === 'remove') {
+            owners = owners.filter(id => id !== jid);
+        }
+        
+        fs.writeFileSync(ownerPath, JSON.stringify(owners, null, 2));
+        owner = owners; // Update current owner variable
+    }
+
+    // Add commands to manage owners
+    XeonBotInc.addowner = async (jid) => {
+        await updateOwner(jid, 'add');
+        return `✅ @${jid.split('@')[0]} added as owner`;
+    }
+
+    XeonBotInc.removeowner = async (jid) => {
+        await updateOwner(jid, 'remove');
+        return `❌ @${jid.split('@')[0]} removed from owners`;
+    }
+
     return XeonBotInc
 }
 
+// Export for API usage
+module.exports = {
+    startBot: startXeonBotInc
+};
 
 // Start the bot with error handling
 startXeonBotInc().catch(error => {

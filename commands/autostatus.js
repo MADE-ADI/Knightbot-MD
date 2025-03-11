@@ -28,7 +28,7 @@ async function autoStatusCommand(sock, chatId, senderId, args) {
         if (!isOwner(senderId)) {
             await sock.sendMessage(chatId, { 
                 text: '❌ This command can only be used by the owner!',
-                ...channelInfo
+                
             });
             return;
         }
@@ -41,7 +41,7 @@ async function autoStatusCommand(sock, chatId, senderId, args) {
             const status = config.enabled ? 'enabled' : 'disabled';
             await sock.sendMessage(chatId, { 
                 text: `🔄 *Auto Status View*\n\nCurrent status: ${status}\n\nUse:\n.autostatus on - Enable auto status view\n.autostatus off - Disable auto status view`,
-                ...channelInfo
+                
             });
             return;
         }
@@ -53,19 +53,19 @@ async function autoStatusCommand(sock, chatId, senderId, args) {
             fs.writeFileSync(configPath, JSON.stringify(config));
             await sock.sendMessage(chatId, { 
                 text: '✅ Auto status view has been enabled!\nBot will now automatically view all contact statuses.',
-                ...channelInfo
+                
             });
         } else if (command === 'off') {
             config.enabled = false;
             fs.writeFileSync(configPath, JSON.stringify(config));
             await sock.sendMessage(chatId, { 
                 text: '❌ Auto status view has been disabled!\nBot will no longer automatically view statuses.',
-                ...channelInfo
+                
             });
         } else {
             await sock.sendMessage(chatId, { 
                 text: '❌ Invalid command! Use:\n.autostatus on - Enable auto status view\n.autostatus off - Disable auto status view',
-                ...channelInfo
+                
             });
         }
 
@@ -73,7 +73,7 @@ async function autoStatusCommand(sock, chatId, senderId, args) {
         console.error('Error in autostatus command:', error);
         await sock.sendMessage(chatId, { 
             text: '❌ Error occurred while managing auto status!\n' + error.message,
-            ...channelInfo
+            
         });
     }
 }
