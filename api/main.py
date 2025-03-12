@@ -12,7 +12,7 @@ def index():
 def list_bots():
     try:
         # Make a request to the Node.js API
-        response = requests.get('http://localhost:3000/list-bots')
+        response = requests.get('http://localhost:8083/list-bots')
         return jsonify(response.json()), response.status_code
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -28,7 +28,7 @@ def connect():
         
         # Make a request to the Node.js API
         response = requests.post(
-            'http://localhost:3000/start-bot', 
+            'http://localhost:8083/start-bot', 
             json=data,
             headers={'Content-Type': 'application/json'}
         )
@@ -50,7 +50,7 @@ def bot_action():
         
         # Make a request to the Node.js API
         response = requests.post(
-            'http://localhost:3000/bot-action', 
+            'http://localhost:8083/bot-action', 
             json=data,
             headers={'Content-Type': 'application/json'}
         )
@@ -64,7 +64,7 @@ def bot_action():
 @app.route('/qrcodes/<path:filename>')
 def serve_qrcode(filename):
     try:
-        response = requests.get(f'http://localhost:3000/qrcodes/{filename}', stream=True)
+        response = requests.get(f'http://localhost:8083/qrcodes/{filename}', stream=True)
         return Response(response.iter_content(chunk_size=1024), 
                        content_type=response.headers['Content-Type'])
     except Exception as e:
@@ -74,6 +74,37 @@ def serve_qrcode(filename):
 def manage():
     return render_template('manage.html')
 
+@app.route('/check-connection/<bot_id>')
+def check_connection(bot_id):
+    try:
+        response = requests.get(f'http://localhost:8083/check-connection/{bot_id}')
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/wait-connection/<bot_id>')
+def wait_connection(bot_id):
+    try:
+        response = requests.get(f'http://localhost:8083/wait-connection/{bot_id}', timeout=35)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/update-owner/<bot_id>', methods=['POST'])
+def update_owner(bot_id):
+    try:
+        data = request.get_json()
+        if not data or 'ownerNumber' not in data:
+            return jsonify({'success': False, 'error': 'Owner number is required'}), 400
+        
+        response = requests.post(
+            f'http://localhost:8083/update-owner/{bot_id}',
+            json=data,
+            headers={'Content-Type': 'application/json'}
+        )
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)

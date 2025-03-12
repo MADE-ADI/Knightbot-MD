@@ -111,8 +111,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const senderId = message.key.participant || message.key.remoteJid;
         const isGroup = chatId.endsWith('@g.us');
         
-        let userMessage = message.message?.conversation?.trim().toLowerCase() ||
-            message.message?.extendedTextMessage?.text?.trim().toLowerCase() || '';
+        let userMessage = message.message?.conversation?.trim() ||
+            message.message?.extendedTextMessage?.text?.trim() || '';
         userMessage = userMessage.replace(/\.\s+/g, '.').trim();
 
         // Only log command usage

@@ -44,6 +44,9 @@ const { parsePhoneNumber } = require("libphonenumber-js")
 const { PHONENUMBER_MCC } = require('@whiskeysockets/baileys/lib/Utils/generics')
 const { rmSync, existsSync } = require('fs')
 const { join } = require('path')
+const crypto = require('crypto')
+
+global.crypto = require('crypto')
 
 const store = makeInMemoryStore({
     logger: pino().child({
@@ -52,300 +55,249 @@ const store = makeInMemoryStore({
     })
 })
 
-let phoneNumber = "" // Clear the phone number
-
-// Modify owner loading logic
-let owner;
-if (botId) {
-    const ownerPath = `./bot-sessions/${botId}/config/owner.json`;
-    // Create default owner file if not exists
-    if (!fs.existsSync(ownerPath)) {
-        fs.writeFileSync(ownerPath, JSON.stringify([], null, 2));
-    }
-    owner = JSON.parse(fs.readFileSync(ownerPath));
-} else {
-    owner = JSON.parse(fs.readFileSync('./database/owner.json'));
-}
+let phoneNumber = "911234567890"
+let owner = JSON.parse(fs.readFileSync('./database/owner.json'))
 
 global.botname = "KNIGHT BOT"
 global.themeemoji = "•"
 
-const pairingCode = false // Disable pairing code
+// Tambahkan deteksi flag pairing-qr
+const pairingQR = process.argv.includes("--pairing-qr")
 const useMobile = process.argv.includes("--mobile")
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const question = (text) => new Promise((resolve) => rl.question(text, resolve))
 
-// Check for bot-specific configuration
-const botId = process.env.BOT_ID;
-let customConfig = {};
-
-if (process.argv.length > 2) {
-  // Look for --config argument
-  const configArg = process.argv.find(arg => arg.startsWith('--config='));
-  if (configArg) {
-    try {
-      customConfig = JSON.parse(configArg.slice(9));
-      console.log("Running with custom config:", customConfig);
-      
-      // Apply custom configurations
-      if (customConfig.botname) global.botname = customConfig.botname;
-      if (customConfig.themeemoji) global.themeemoji = customConfig.themeemoji;
-      // Apply other custom configs as needed
-    } catch (error) {
-      console.error("Error parsing custom config:", error);
-    }
-  }
+// Tambahkan fungsi untuk memastikan folder bot-sessions ada
+const BOT_SESSIONS_DIR = './bot-sessions'
+if (!existsSync(BOT_SESSIONS_DIR)) {
+    fs.mkdirSync(BOT_SESSIONS_DIR)
 }
 
-// Use bot-specific session directory if a botId is provided
-const sessionDir = botId ? `./bot-sessions/${botId}` : './session';
-         
-async function startXeonBotInc(botId, qrCallback, connectedCallback) {
-    if (!botId) throw new Error('Bot ID is required');
-    
-    const sessionDir = `./bot-sessions/${botId}`;
-    let { version, isLatest } = await fetchLatestBaileysVersion();
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const msgRetryCounterCache = new NodeCache()
+// Parse command line arguments
+const args = process.argv.slice(2)
+const isQR = args[0] === '--qr'
+const isRun = args[0] === '--run'
+const sessionName = args[1]
 
+// Validasi arguments
+if ((isQR || isRun) && !sessionName) {
+    console.log(chalk.red('Error: Nama bot harus ditentukan!'))
+    console.log(chalk.yellow('\nCara penggunaan:'))
+    console.log(chalk.cyan('1. Membuat session baru: node index.js --qr <namabot>'))
+    console.log(chalk.cyan('2. Menjalankan bot: node index.js --run <namabot>'))
+    process.exit(1)
+}
+
+// Tambahkan variabel untuk tracking status koneksi
+let isFullyConnected = false;
+let hasCredentialsSaved = false;
+
+async function askLoginMethod() {
+    console.log(chalk.cyan('================================='))
+    console.log(chalk.yellow('Pilih metode login:'))
+    console.log(chalk.cyan('================================='))
+    console.log(chalk.white('1. Pairing Code'))
+    console.log(chalk.white('2. QR Code'))
+    const choice = await question(chalk.green('Pilih nomor (1/2): '))
+    return choice.trim()
+}
+         
+async function startXeonBotInc() {
+    // Tampilkan bantuan jika tidak ada argumen
+    if (!isQR && !isRun) {
+        console.log(chalk.yellow('\nCara penggunaan:'))
+        console.log(chalk.cyan('1. Membuat session baru: node index.js --qr <namabot>'))
+        console.log(chalk.cyan('2. Menjalankan bot: node index.js --run <namabot>'))
+        console.log(chalk.cyan('\nSession yang tersedia:'))
+        
+        const sessions = fs.readdirSync(BOT_SESSIONS_DIR)
+        if (sessions.length === 0) {
+            console.log(chalk.red('Belum ada session tersimpan'))
+        } else {
+            sessions.forEach(session => {
+                console.log(chalk.green(`- ${session}`))
+            })
+        }
+        process.exit(0)
+    }
+
+    // Set path session berdasarkan nama bot
+    const sessionPath = `${BOT_SESSIONS_DIR}/${sessionName}`
+
+    // Tambahkan logging untuk debugging
+    console.log(chalk.yellow('\nMemulai bot...'))
+    console.log(chalk.cyan(`Mode: ${isQR ? 'QR Code' : 'Run'}`))
+    console.log(chalk.cyan(`Session: ${sessionName}`))
+    console.log(chalk.cyan(`Path: ${sessionPath}`))
+
+    // Inisialisasi session
+    let state, saveCreds
+    try {
+        console.log(chalk.yellow('Memuat session...'))
+        const authResult = await useMultiFileAuthState(sessionPath)
+        state = authResult.state
+        saveCreds = authResult.saveCreds
+        
+        console.log(chalk.green('Session berhasil dimuat!'))
+    } catch (error) {
+        console.error(chalk.red('Error saat memuat session:'), error)
+        if (isRun) {
+            console.log(chalk.yellow('Session tidak valid, menampilkan QR code untuk login...'))
+        }
+        // Buat directory jika belum ada
+        if (!existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true })
+        }
+        const authResult = await useMultiFileAuthState(sessionPath)
+        state = authResult.state
+        saveCreds = authResult.saveCreds
+    }
+
+    // Buat koneksi WhatsApp
     const XeonBotInc = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // Disable terminal QR
-        qrTimeout: 0, // No timeout for QR
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-        },
+        version: (await fetchLatestBaileysVersion()).version,
+        logger: pino({ level: 'debug' }),
+        printQRInTerminal: true, // Selalu tampilkan QR jika diperlukan
+        auth: state,
+        browser: ['Chrome (Linux)', '', ''],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
         markOnlineOnConnect: true,
         generateHighQualityLinkPreview: true,
-        getMessage: async (key) => {
-            let jid = jidNormalizedUser(key.remoteJid)
-            let msg = await store.loadMessage(jid, key.id)
-            return msg?.message || ""
-        },
-        msgRetryCounterCache,
-        defaultQueryTimeoutMs: undefined,
     })
+
+    console.log(chalk.yellow('Mencoba terhubung ke WhatsApp...'))
 
     store.bind(XeonBotInc.ev)
 
-    // QR code handling
-    if (!state.creds.registered) {
-        XeonBotInc.ev.on('connection.update', async ({ qr }) => {
-            if (qr) {
-                qrCallback && qrCallback(qr);
-            }
-        });
-    }
+    // Perbaikan connection handler
+    XeonBotInc.ev.on('connection.update', async (update) => {
+        console.log(chalk.cyan('Connection update:', JSON.stringify(update, null, 2)))
+        const { connection, lastDisconnect } = update
 
-    // Message handling
-    XeonBotInc.ev.on('messages.upsert', async chatUpdate => {
+        if (connection === 'open') {
+            isFullyConnected = true;
+            const { id, name } = XeonBotInc.user
+            console.log(chalk.green('\n✅ Bot berhasil terhubung!'))
+            console.log(chalk.yellow('Bot Info:'))
+            console.log(chalk.cyan(`› Nama    : ${name}`))
+            console.log(chalk.cyan(`› Number  : ${id.split(':')[0]}`))
+            console.log(chalk.cyan(`› Status  : Online`))
+            console.log(chalk.cyan(`› Session : ${sessionName}`))
+            console.log(chalk.yellow('\nBot sudah siap digunakan!'))
+            console.log(chalk.cyan('Ketik .menu untuk melihat daftar perintah\n'))
+
+            // Set bot status
+            await XeonBotInc.sendPresenceUpdate('available')
+            await XeonBotInc.updateProfileStatus(`Bot aktif | Runtime: ${process.uptime()} detik`)
+            
+        } else if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut && 
+                                  statusCode !== 401 &&
+                                  reconnectAttempt < maxReconnectAttempts
+
+            if (shouldReconnect) {
+                reconnectAttempt++
+                console.log(chalk.yellow(`\nKoneksi terputus, mencoba menghubungkan ulang (${reconnectAttempt}/${maxReconnectAttempts})...`))
+                
+                await new Promise(resolve => setTimeout(resolve, 3000))
+                startXeonBotInc()
+            } else {
+                // Jika session tidak valid, kita tidak perlu menghapusnya
+                // karena QR code akan ditampilkan untuk login ulang
+                console.log(chalk.yellow('\nSilakan scan QR code untuk login ulang...'))
+            }
+        }
+    })
+
+    // Perbaikan credentials handler
+    XeonBotInc.ev.on('creds.update', async () => {
         try {
-            const mek = chatUpdate.messages[0]
-            if (!mek.message) return
-            mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
-            if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-                await handleStatus(XeonBotInc, chatUpdate);
-                return;
-            }
-            if (!XeonBotInc.public && !mek.key.fromMe && chatUpdate.type === 'notify') return
-            if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return
+            await saveCreds()
+            hasCredentialsSaved = true;
+            console.log(chalk.green('✓ Credentials diperbarui'))
             
-            try {
-                await handleMessages(XeonBotInc, chatUpdate, true)
-            } catch (err) {
-                console.error("Error in handleMessages:", err)
-                // Only try to send error message if we have a valid chatId
-                if (mek.key && mek.key.remoteJid) {
-                    await XeonBotInc.sendMessage(mek.key.remoteJid, { 
-                        text: '❌ An error occurred while processing your message.',
-                        contextInfo: {
-                            forwardingScore: 999,
-                            isForwarded: true,
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: '120363161513685998@newsletter',
-                                newsletterName: 'KnightBot MD',
-                                serverMessageId: -1
-                            }
-                        }
-                    }).catch(console.error);
-                }
+            // Jika dalam mode QR dan sudah fully connected, tunggu credentials tersimpan
+            if (isQR && isFullyConnected && hasCredentialsSaved) {
+                // Tunggu 3 detik untuk memastikan semua proses selesai
+                await new Promise(resolve => setTimeout(resolve, 3000))
+                
+                console.log(chalk.green('\n✅ Session berhasil dibuat dan tersimpan!'))
+                console.log(chalk.yellow('Session tersimpan di:'), chalk.cyan(sessionPath))
+                console.log(chalk.yellow('\nJalankan bot dengan perintah:'))
+                console.log(chalk.cyan(`node index.js --run ${sessionName}\n`))
+                process.exit(0)
             }
-        } catch (err) {
-            console.error("Error in messages.upsert:", err)
+        } catch (error) {
+            console.error('Error menyimpan credentials:', error)
+            if (isQR) {
+                console.log(chalk.red('\nGagal menyimpan session! Silakan coba lagi.'))
+                process.exit(1)
+            }
         }
     })
 
-    // Add these event handlers for better functionality
-    XeonBotInc.decodeJid = (jid) => {
-        if (!jid) return jid
-        if (/:\d+@/gi.test(jid)) {
-            let decode = jidDecode(jid) || {}
-            return decode.user && decode.server && decode.user + '@' + decode.server || jid
-        } else return jid
-    }
-
-    XeonBotInc.ev.on('contacts.update', update => {
-        for (let contact of update) {
-            let id = XeonBotInc.decodeJid(contact.id)
-            if (store && store.contacts) store.contacts[id] = { id, name: contact.notify }
-        }
-    })
-
-    XeonBotInc.getName = (jid, withoutContact = false) => {
-        id = XeonBotInc.decodeJid(jid)
-        withoutContact = XeonBotInc.withoutContact || withoutContact 
-        let v
-        if (id.endsWith("@g.us")) return new Promise(async (resolve) => {
-            v = store.contacts[id] || {}
-            if (!(v.name || v.subject)) v = XeonBotInc.groupMetadata(id) || {}
-            resolve(v.name || v.subject || PhoneNumber('+' + id.replace('@s.whatsapp.net', '')).getNumber('international'))
-        })
-        else v = id === '0@s.whatsapp.net' ? {
-            id,
-            name: 'WhatsApp'
-        } : id === XeonBotInc.decodeJid(XeonBotInc.user.id) ?
-            XeonBotInc.user :
-            (store.contacts[id] || {})
-        return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international')
-    }
-
-    XeonBotInc.public = true
-
-    XeonBotInc.serializeM = (m) => smsg(XeonBotInc, m, store)
-
-    // Comment out or remove the pairing code logic
-    /* 
-    if (pairingCode && !XeonBotInc.authState.creds.registered) {
-        // pairing code logic here
-    }
-    */
-
-    // Connection handling
-    XeonBotInc.ev.on('connection.update', async (s) => {
-        const { connection, lastDisconnect } = s
-        if (connection == "open") {
-            console.log(chalk.magenta(` `))
-            console.log(chalk.yellow(`🌿Connected to => ` + JSON.stringify(XeonBotInc.user, null, 2)))
-            
-            // Send message to bot's own number
-            const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-            await XeonBotInc.sendMessage(botNumber, { 
-                text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!
-                \n Give a Star ⭐ to our bot:\n https://github.com/mruniquehacker/KnightBot-MD\n ✅Make sure to join below channel`,
-                contextInfo: {
-                    forwardingScore: 999,
-                    isForwarded: true,
-                    forwardedNewsletterMessageInfo: {
-                        newsletterJid: '120363161513685998@newsletter',
-                        newsletterName: 'KnightBot MD',
-                        serverMessageId: -1
-                    }
-                }
-            });
-
-            await delay(1999)
-            console.log(chalk.yellow(`\n\n                  ${chalk.bold.blue(`[ ${global.botname || 'KNIGHT BOT'} ]`)}\n\n`))
-            console.log(chalk.cyan(`< ================================================== >`))
-            console.log(chalk.magenta(`\n${global.themeemoji || '•'} YT CHANNEL: MR UNIQUE HACKER`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} GITHUB: mrunqiuehacker`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} WA NUMBER: ${owner}`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} CREDIT: MR UNIQUE HACKER`))
-            console.log(chalk.green(`${global.themeemoji || '•'} 🤖 Bot Connected Successfully! ✅`))
-            connectedCallback && connectedCallback();
-        }
-        if (
-            connection === "close" &&
-            lastDisconnect &&
-            lastDisconnect.error &&
-            lastDisconnect.error.output.statusCode != 401
-        ) {
-            startXeonBotInc()
-        }
-    })
-
-    XeonBotInc.ev.on('creds.update', saveCreds)
-    
-    // Modify the event listener to log the update object
-    XeonBotInc.ev.on('group-participants.update', async (update) => {
-        console.log('Group Update Event:', JSON.stringify(update, null, 2));  // Add this line to debug
-        await handleGroupParticipantUpdate(XeonBotInc, update);
-    });
-
-    // Add status update handlers
+    // Tambahkan message handler dari main.js
     XeonBotInc.ev.on('messages.upsert', async (m) => {
-        if (m.messages[0].key && m.messages[0].key.remoteJid === 'status@broadcast') {
-            await handleStatus(XeonBotInc, m);
-        }
-    });
+        if (!isRun) return // Skip jika bukan mode run
+        await handleMessages(XeonBotInc, m, true)
+    })
 
-    // Handle status updates
-    XeonBotInc.ev.on('status.update', async (status) => {
-        await handleStatus(XeonBotInc, status);
-    });
+    // Tambahkan group participant handler dari main.js  
+    XeonBotInc.ev.on('group-participants.update', async (update) => {
+        if (!isRun) return
+        await handleGroupParticipantUpdate(XeonBotInc, update)
+    })
 
-    // Handle message reactions (some status updates come through here)
-    XeonBotInc.ev.on('messages.reaction', async (status) => {
-        await handleStatus(XeonBotInc, status);
-    });
+    // Tambahkan status handler dari main.js
+    XeonBotInc.ev.on('presence.update', async (status) => {
+        if (!isRun) return
+        await handleStatus(XeonBotInc, status) 
+    })
+    
 
-    // Add function to manage owners
-    const updateOwner = async (jid, action = 'add') => {
-        const ownerPath = botId 
-            ? `./bot-sessions/${botId}/config/owner.json`
-            : './database/owner.json';
-        
-        let owners = JSON.parse(fs.readFileSync(ownerPath));
-        
-        if (action === 'add') {
-            if (!owners.includes(jid)) {
-                owners.push(jid);
-            }
-        } else if (action === 'remove') {
-            owners = owners.filter(id => id !== jid);
-        }
-        
-        fs.writeFileSync(ownerPath, JSON.stringify(owners, null, 2));
-        owner = owners; // Update current owner variable
-    }
-
-    // Add commands to manage owners
-    XeonBotInc.addowner = async (jid) => {
-        await updateOwner(jid, 'add');
-        return `✅ @${jid.split('@')[0]} added as owner`;
-    }
-
-    XeonBotInc.removeowner = async (jid) => {
-        await updateOwner(jid, 'remove');
-        return `❌ @${jid.split('@')[0]} removed from owners`;
-    }
+    // Tambahkan handler untuk memastikan koneksi stabil
+    XeonBotInc.ev.on('messages.upsert', async () => {
+        if (isQR) return // Skip jika mode QR
+        reconnectAttempt = 0 // Reset reconnect counter saat ada aktivitas
+    })
 
     return XeonBotInc
 }
 
-// Export for API usage
-module.exports = {
-    startBot: startXeonBotInc
-};
+// Tambahkan fungsi untuk format waktu
+function runtime(seconds) {
+    const hours = Math.floor(seconds / (60 * 60))
+    const minutes = Math.floor((seconds % (60 * 60)) / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${hours}h ${minutes}m ${secs}s`
+}
 
-// Start the bot with error handling
-startXeonBotInc().catch(error => {
-    console.error('Fatal error:', error)
-    process.exit(1)
-})
-
-// Better error handling
+// Error handlers dengan detail
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err)
-    // Don't exit immediately to allow reconnection
+    console.error(chalk.red('Uncaught Exception:'), err)
 })
 
 process.on('unhandledRejection', (err) => {
-    console.error('Unhandled Rejection:', err)
-    // Don't exit immediately to allow reconnection
+    console.error(chalk.red('Unhandled Rejection:'), err)
+})
+
+// Tambahkan signal handlers
+process.on('SIGINT', async () => {
+    console.log(chalk.yellow('\nMematikan bot...'))
+    if (fs.existsSync(sessionPath) && !isQR) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+    process.exit(0)
+})
+
+// Jalankan bot dengan logging
+console.log(chalk.green('\nMemulai Knight Bot...'))
+startXeonBotInc().catch(error => {
+    console.error(chalk.red('\nFatal error:'), error)
+    process.exit(1)
 })
 
 let file = require.resolve(__filename)
