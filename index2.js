@@ -93,7 +93,7 @@ async function startXeonBotInc() {
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: loginMethod === "2" || pairingQR, // Aktifkan QR jika opsi 2 atau flag --pairing-qr
-        browser: ["Chrome (Linux)", "", ""],
+        // browser: useMobile ? ["WhatsApp", "Safari", "3.0"] : ["Chrome (Linux)", "", ""], // Use mobile config if flag
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
@@ -191,19 +191,40 @@ async function startXeonBotInc() {
     if (!XeonBotInc.authState.creds.registered) {
         if (loginMethod === "1" && !pairingQR) {  // Tambahkan pengecekan !pairingQR
             // Pairing Code method
-            let phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFor example: +917023951514 : `)))
-            phoneNumber = phoneNumber.replace(/[^0-9]/g, '')
-
+            // Minta pengguna memasukkan nomor telepon
+            phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Masukkan nomor WhatsApp Anda (format internasional tanpa +, contoh: 628xxxxxxxxxx): `)))
+            
             console.log(chalk.yellow('\nMenginisialisasi koneksi dengan Pairing Code...'))
             await delay(3000)
 
             try {
                 console.log(chalk.yellow('\nMeminta kode pairing...'))
-                let code = await XeonBotInc.requestPairingCode(phoneNumber)
-                code = code?.match(/.{1,4}/g)?.join("-") || code
-                console.log(chalk.black(chalk.bgGreen(`Your Pairing Code : `)), chalk.black(chalk.white(code)))
+                // Format nomor telepon dengan benar
+                phoneNumber = phoneNumber.replace(/[^0-9]/g, '') // Hapus karakter non-angka
+                
+                // Pastikan format nomor benar
+                if (phoneNumber.startsWith('0')) {
+                    phoneNumber = '62' + phoneNumber.slice(1) // Ganti 0 dengan 62 untuk Indonesia
+                }
+                
+                try {
+                    console.log(chalk.cyan(`Mencoba dengan nomor: ${phoneNumber}`))
+                    let code = await XeonBotInc.requestPairingCode(phoneNumber)
+                    console.log(code)
+                    code = code?.match(/.{1,4}/g)?.join("-") || code
+                    console.log(chalk.black(chalk.bgGreen(`Kode Pairing Anda: `)), chalk.black(chalk.white(code)))
+                } catch (error) {
+                    console.error('Error dalam proses pairing:', error.message)
+                    throw error
+                }
             } catch (error) {
                 console.error('Error dalam proses pairing:', error)
+                console.log(chalk.red('\nTips debugging:'))
+                console.log(chalk.yellow('1. Pastikan nomor telepon terdaftar di WhatsApp'))
+                console.log(chalk.yellow('2. Coba format lain: dengan atau tanpa kode negara'))
+                console.log(chalk.yellow('3. Coba gunakan metode QR code dengan perintah: node index2.js --pairing-qr'))
+                console.log(chalk.yellow('4. Pastikan versi WhatsApp di ponsel Anda terbaru'))
+                console.log(chalk.yellow('5. Coba restart ponsel dan server Anda'))
                 process.exit(1)
             }
         } else {
@@ -214,7 +235,6 @@ async function startXeonBotInc() {
         }
     }
 
-    // Connection handling
     XeonBotInc.ev.on('connection.update', async (s) => {
         const { connection, lastDisconnect } = s
         if (connection == "open") {

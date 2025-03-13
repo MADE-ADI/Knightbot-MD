@@ -211,7 +211,7 @@
                 // Show loading spinner
                 addBotSpinner.style.display = 'inline-block';
                 
-                // Send request to create new bot
+                // Kirim request untuk membuat bot baru
                 fetch('/add-new', {
                     method: 'POST',
                     headers: {
@@ -224,26 +224,57 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    addBotSpinner.style.display = 'none';
-                    
-                    if (data.success && data.qrPath) {
-                        qrCode.src = data.qrPath;
+                    if (data.success) {
+                        // Tampilkan loading QR
+                        qrLoadingContainer.style.display = 'block';
                         qrCardContainer.style.display = 'block';
                         
-                        // Mulai polling untuk memeriksa koneksi
-                        checkBotConnection(data.botId);
-                        
-                        // Refresh the bots list
-                        loadBots();
+                        // Mulai polling untuk status koneksi
+                        pollConnectionStatus(data.botId);
                     } else {
                         alert('Error: ' + (data.error || 'Failed to create bot'));
                     }
+                    addBotSpinner.style.display = 'none';
                 })
                 .catch(error => {
                     addBotSpinner.style.display = 'none';
                     alert('Error creating bot: ' + error.message);
                 });
             });
+            
+            // Fungsi untuk polling status koneksi
+            function pollConnectionStatus(botId) {
+                let retryCount = 0;
+                const maxRetries = 30; // 30 detik timeout
+                
+                function checkStatus() {
+                    fetch(`/check-connection/${botId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.connected) {
+                                // Bot terhubung
+                                qrCardContainer.style.display = 'none';
+                                qrLoadingContainer.style.display = 'none';
+                                connectionSuccessModal.show();
+                                loadBots(); // Refresh daftar bot
+                            } else if (retryCount < maxRetries) {
+                                // Coba lagi setelah 1 detik
+                                retryCount++;
+                                setTimeout(checkStatus, 1000);
+                            } else {
+                                // Timeout
+                                qrLoadingContainer.style.display = 'none';
+                                alert('Connection timeout. Please check the bot status manually.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error checking connection:', error);
+                            qrLoadingContainer.style.display = 'none';
+                        });
+                }
+                
+                checkStatus();
+            }
             
             // Load and display bots
             const botsList = document.getElementById('botsList');
@@ -270,7 +301,6 @@
                             return;
                         }
                         
-                        // Create cards for each bot
                         bots.forEach(bot => {
                             const template = botCardTemplate.content.cloneNode(true);
                             const card = template.querySelector('.col-md-6');
@@ -281,7 +311,6 @@
                             const deleteBtn = card.querySelector('.delete-btn');
                             const editOwnerBtn = card.querySelector('.edit-owner-btn');
                             
-                            // Set bot name and status
                             botName.textContent = bot.name;
                             
                             if (bot.status === 'active') {
@@ -296,8 +325,15 @@
                                 stopBtn.disabled = true;
                             }
                             
-                            // Add event listeners for bot actions
-                            startBtn.addEventListener('click', () => botAction('start', bot.name));
+                            startBtn.addEventListener('click', () => {
+                                startBtn.disabled = true;
+                                const spinner = startBtn.querySelector('.spinner-border');
+                                if (spinner) spinner.style.display = 'inline-block';
+                                
+                                botAction('start', bot.name)
+                                    .then(() => pollConnectionStatus(bot.name));
+                            });
+                            
                             stopBtn.addEventListener('click', () => botAction('stop', bot.name));
                             deleteBtn.addEventListener('click', () => {
                                 if (confirm(`Are you sure you want to delete ${bot.name}?`)) {
@@ -315,89 +351,28 @@
                     });
             }
             
-            function botAction(action, botName) {
-                fetch('/bot-action', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ action, botName }),
-                })
-                .then(response => response.json())
-                .then(data => {
+            async function botAction(action, botName) {
+                try {
+                    const response = await fetch('/bot-action', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action, botName }),
+                    });
+                    
+                    const data = await response.json();
                     if (data.success) {
-                        // Refresh the bots list
-                        loadBots();
+                        if (action !== 'start') { // Jika bukan start, refresh list langsung
+                            loadBots();
+                        }
                     } else {
                         alert('Error: ' + (data.error || `Failed to ${action} bot`));
                     }
-                })
-                .catch(error => {
+                } catch (error) {
                     alert(`Error performing ${action}: ` + error.message);
-                });
+                }
             }
-            
-            // Fungsi untuk memeriksa koneksi bot
-            function checkBotConnection(botId) {
-                // Tampilkan loading
-                qrLoadingContainer.style.display = 'block';
-                
-                // Gunakan long polling untuk menunggu koneksi
-                fetch(`/wait-connection/${botId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.connected) {
-                            // Sembunyikan QR code
-                            qrCardContainer.style.display = 'none';
-                            qrLoadingContainer.style.display = 'none';
-                            
-                            // Tampilkan modal sukses
-                            connectionSuccessModal.show();
-                            
-                            // Refresh daftar bot
-                            loadBots();
-                        } else if (data.timeout) {
-                            // Jika timeout, cek lagi secara manual
-                            fetch(`/check-connection/${botId}`)
-                                .then(response => response.json())
-                                .then(statusData => {
-                                    if (statusData.connected) {
-                                        // Sembunyikan QR code
-                                        qrCardContainer.style.display = 'none';
-                                        qrLoadingContainer.style.display = 'none';
-                                        
-                                        // Tampilkan modal sukses
-                                        connectionSuccessModal.show();
-                                        
-                                        // Refresh daftar bot
-                                        loadBots();
-                                    } else {
-                                        // Masih belum terhubung, sembunyikan loading
-                                        qrLoadingContainer.style.display = 'none';
-                                    }
-                                });
-                        } else {
-                            qrLoadingContainer.style.display = 'none';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error checking connection:', error);
-                        qrLoadingContainer.style.display = 'none';
-                    });
-            }
-            
-            // Refresh button
-            refreshBotsBtn.addEventListener('click', loadBots);
-            
-            // Initial load
-            loadBots();
-
-            const editOwnerModal = new bootstrap.Modal(document.getElementById('editOwnerModal'));
-            const editOwnerForm = document.getElementById('editOwnerForm');
-            const editBotId = document.getElementById('editBotId');
-            const editOwnerNumber = document.getElementById('editOwnerNumber');
-            const saveOwnerBtn = document.getElementById('saveOwnerBtn');
-            const editOwnerSpinner = document.getElementById('editOwnerSpinner');
             
             // Fungsi untuk menampilkan modal edit owner
             function showEditOwnerModal(botId) {
@@ -449,6 +424,12 @@
                 editOwnerForm.reset();
                 editBotId.value = '';
             });
+            
+            // Initial load
+            loadBots();
+            
+            // Refresh button
+            refreshBotsBtn.addEventListener('click', loadBots);
         });
     </script>
 </body>

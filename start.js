@@ -21,6 +21,7 @@ const { v4: uuidv4 } = require('uuid')
 const path = require('path')
 const fs = require('fs')
 const bodyParser = require('express');
+const EventEmitter = require('events');
 
 // Tambahkan konfigurasi global untuk crypto
 global.crypto = require('crypto');
@@ -36,6 +37,9 @@ const store = makeInMemoryStore({
 
 const sessionManager = new SessionManager(store);
 const botEvents = sessionManager.getEvents();
+
+// Tambahkan event emitter untuk mengelola events
+const sessionEvents = new EventEmitter();
 
 // Create Express app
 const app = express();
@@ -244,6 +248,92 @@ app.post('/update-owner/:botId', async (req, res) => {
             error: error.message 
         });
     }
+});
+
+// Endpoint untuk menerima notifikasi session baru dari node
+app.post('/new-session', (req, res) => {
+    const { sessionName, mode } = req.body;
+    
+    try {
+        console.log(`Menerima permintaan session baru: ${sessionName} (mode: ${mode})`);
+        
+        // Buat session baru
+        sessionManager.createSession(
+            sessionName,
+            sessionName,
+            "", // owner number kosong
+            async (qr) => {
+                try {
+                    const qrFileName = `qr-${sessionName}.png`;
+                    const qrImagePath = path.join(qrcodesDir, qrFileName);
+                    
+                    await qrcode.toFile(qrImagePath, qr, {
+                        errorCorrectionLevel: 'H',
+                        margin: 1,
+                        scale: 8
+                    });
+                    
+                    // Emit event untuk API
+                    sessionEvents.emit('qr-generated', {
+                        sessionName,
+                        qrPath: `/qrcodes/${qrFileName}`
+                    });
+                    
+                } catch (err) {
+                    console.error('QR generation error:', err);
+                }
+            },
+            (socket) => {
+                console.log(`Bot ${sessionName} connected successfully!`);
+                sessionEvents.emit('connection-success', sessionName);
+            }
+        );
+        
+        res.json({ 
+            success: true, 
+            message: 'Session creation initiated'
+        });
+        
+    } catch (error) {
+        console.error('Error creating session:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+// Endpoint SSE untuk menerima updates
+app.get('/session-updates/:sessionName', (req, res) => {
+    const { sessionName } = req.params;
+    
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    const qrHandler = (data) => {
+        if (data.sessionName === sessionName) {
+            res.write(`data: ${JSON.stringify({ type: 'qr', ...data })}\n\n`);
+        }
+    };
+    
+    const connectionHandler = (connectedSession) => {
+        if (connectedSession === sessionName) {
+            res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+            cleanup();
+        }
+    };
+    
+    sessionEvents.on('qr-generated', qrHandler);
+    sessionEvents.on('connection-success', connectionHandler);
+    
+    const cleanup = () => {
+        sessionEvents.removeListener('qr-generated', qrHandler);
+        sessionEvents.removeListener('connection-success', connectionHandler);
+        res.end();
+    };
+    
+    req.on('close', cleanup);
 });
 
 // Start server

@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knight Bot - Login QR</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin: 20px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        h1, h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .qr-container {
+            margin: 20px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #qrcode {
+            margin: 20px 0;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .session-list {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .session-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .session-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .run-btn {
+            background-color: #007bff;
+        }
+        .run-btn:hover {
+            background-color: #0069d9;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+        .edit-btn {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .edit-btn:hover {
+            background-color: #e0a800;
+        }
+        .owner-settings {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .save-btn {
+            background-color: #28a745;
+        }
+        .save-btn:hover {
+            background-color: #218838;
+        }
+        .form-text {
+            display: block;
+            margin-top: 5px;
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .running-bots {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .refresh-btn {
+            background-color: #17a2b8;
+            margin-bottom: 15px;
+        }
+        .refresh-btn:hover {
+            background-color: #138496;
+        }
+        .bot-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+        }
+        .bot-name {
+            font-weight: bold;
+        }
+        .bot-status {
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        .bot-status.online {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .bot-status.offline {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .bot-stats {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .login-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            flex: 1;
+            background-color: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .tab-btn.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        .tab-content {
+            margin-top: 20px;
+        }
+        .pairing-btn {
+            background-color: #007bff;
+        }
+        .pairing-btn:hover {
+            background-color: #0069d9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Knight Bot - WhatsApp Login</h1>
+        
+        <div class="form-group">
+            <label for="sessionName">Nama Sesi Bot:</label>
+            <input type="text" id="sessionName" placeholder="Masukkan nama untuk sesi bot baru">
+        </div>
+        
+        <button id="createSession">Buat Sesi Baru</button>
+        
+        <div class="login-tabs" style="margin-top: 20px;">
+            <button id="qrLoginTab" class="tab-btn active">Login QR Code</button>
+            <button id="pairingLoginTab" class="tab-btn">Login Kode Pairing</button>
+        </div>
+        
+        <div id="qrLoginContent" class="tab-content">
+            <div class="qr-container">
+                <div id="status" class="status info" style="display: none;"></div>
+                <div id="qrcode"></div>
+            </div>
+        </div>
+        
+        <div id="pairingLoginContent" class="tab-content" style="display: none;">
+            <div class="form-group">
+                <label for="phoneNumber">Nomor WhatsApp:</label>
+                <input type="text" id="phoneNumber" placeholder="Contoh: 08123456789">
+                <small class="form-text">Format: 08xxx atau 628xxx</small>
+            </div>
+            
+            <button id="requestPairingCode" class="pairing-btn">Minta Kode Pairing</button>
+            
+            <div id="pairingStatus" class="status info" style="display: none;"></div>
+            
+            <div id="pairingCodeDisplay" style="display: none; margin-top: 20px;">
+                <h3>Kode Pairing Anda:</h3>
+                <div id="pairingCode" style="font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 15px 0;"></div>
+                <p>Masukkan kode ini di aplikasi WhatsApp Anda:</p>
+                <ol style="text-align: left; margin-top: 10px;">
+                    <li>Buka WhatsApp di ponsel Anda</li>
+                    <li>Ketuk Menu (⋮) atau Pengaturan</li>
+                    <li>Ketuk Perangkat Tertaut</li>
+                    <li>Ketuk Tautkan Perangkat</li>
+                    <li>Masukkan kode pairing di atas</li>
+                </ol>
+                <div id="pairingTimer" style="margin-top: 10px; font-size: 14px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container session-list">
+        <h2>Sesi Tersedia</h2>
+        <div id="sessionsList"></div>
+    </div>
+
+    <div class="container owner-settings">
+        <h2>Pengaturan Owner</h2>
+        <div class="form-group">
+            <label for="sessionForOwner">Pilih Sesi:</label>
+            <select id="sessionForOwner">
+                <option value="">-- Pilih Sesi --</option>
+            </select>
+        </div>
+        
+        <div id="ownerSettingsContent" style="display: none;">
+            <div class="form-group">
+                <label for="ownerNumber">Nomor Owner:</label>
+                <input type="text" id="ownerNumber" placeholder="Contoh: 628123456789">
+                <small class="form-text">Format: 628xxx (diawali kode negara tanpa tanda +)</small>
+            </div>
+            
+            <button id="saveOwnerNumber" class="save-btn">Simpan Nomor Owner</button>
+        </div>
+    </div>
+
+    <div class="container running-bots">
+        <h2>Bot yang Sedang Berjalan</h2>
+        <button id="refreshRunningBots" class="refresh-btn">Refresh</button>
+        <div id="runningBotsList"></div>
+    </div>
+
+    <script>
+        // Inisialisasi Socket.IO
+        const socket = io();
+        let currentSession = '';
+        
+        // DOM Elements
+        const sessionNameInput = document.getElementById('sessionName');
+        const createSessionBtn = document.getElementById('createSession');
+        const qrcodeDiv = document.getElementById('qrcode');
+        const statusDiv = document.getElementById('status');
+        const sessionsListDiv = document.getElementById('sessionsList');
+        
+        // DOM Elements untuk pengaturan owner
+        const sessionForOwnerSelect = document.getElementById('sessionForOwner');
+        const ownerSettingsContent = document.getElementById('ownerSettingsContent');
+        const ownerNumberInput = document.getElementById('ownerNumber');
+        const saveOwnerNumberBtn = document.getElementById('saveOwnerNumber');
+        
+        // DOM Elements untuk bot yang berjalan
+        const refreshRunningBotsBtn = document.getElementById('refreshRunningBots');
+        const runningBotsListDiv = document.getElementById('runningBotsList');
+        
+        // DOM Elements untuk tab login
+        const qrLoginTab = document.getElementById('qrLoginTab');
+        const pairingLoginTab = document.getElementById('pairingLoginTab');
+        const qrLoginContent = document.getElementById('qrLoginContent');
+        const pairingLoginContent = document.getElementById('pairingLoginContent');
+        
+        // DOM Elements untuk login pairing
+        const phoneNumberInput = document.getElementById('phoneNumber');
+        const requestPairingCodeBtn = document.getElementById('requestPairingCode');
+        const pairingStatusDiv = document.getElementById('pairingStatus');
+        const pairingCodeDisplay = document.getElementById('pairingCodeDisplay');
+        const pairingCodeDiv = document.getElementById('pairingCode');
+        const pairingTimerDiv = document.getElementById('pairingTimer');
+        
+        let pairingInterval = null;
+        let pairingSessionName = '';
+        
+        // Load sessions saat halaman dimuat
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSessions();
+            loadRunningBots();
+        });
+        
+        // Event Listeners
+        createSessionBtn.addEventListener('click', createNewSession);
+        sessionForOwnerSelect.addEventListener('change', loadOwnerNumber);
+        saveOwnerNumberBtn.addEventListener('click', saveOwnerNumber);
+        refreshRunningBotsBtn.addEventListener('click', loadRunningBots);
+        
+        // Event Listeners untuk tab
+        qrLoginTab.addEventListener('click', () => {
+            qrLoginTab.classList.add('active');
+            pairingLoginTab.classList.remove('active');
+            qrLoginContent.style.display = 'block';
+            pairingLoginContent.style.display = 'none';
+        });
+        
+        pairingLoginTab.addEventListener('click', () => {
+            pairingLoginTab.classList.add('active');
+            qrLoginTab.classList.remove('active');
+            pairingLoginContent.style.display = 'block';
+            qrLoginContent.style.display = 'none';
+        });
+        
+        // Event Listener untuk tombol minta kode pairing
+        requestPairingCodeBtn.addEventListener('click', requestPairingCode);
+        
+        // Socket Events
+        socket.on('qr', handleQRCode);
+        socket.on('connected', handleConnected);
+        socket.on('error', handleError);
+        
+        // Functions
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displaySessions(data.sessions);
+                    updateSessionsForOwner(data.sessions);
+                } else {
+                    showStatus('error', 'Gagal memuat sesi: ' + data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal terhubung ke server: ' + error.message);
+            }
+        }
+        
+        function displaySessions(sessions) {
+            sessionsListDiv.innerHTML = '';
+            
+            if (sessions.length === 0) {
+                sessionsListDiv.innerHTML = '<p>Belum ada sesi tersedia</p>';
+                return;
+            }
+            
+            sessions.forEach(session => {
+                const sessionItem = document.createElement('div');
+                sessionItem.className = 'session-item';
+                
+                const sessionName = document.createElement('span');
+                sessionName.textContent = session;
+                
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'session-actions';
+                
+                const runBtn = document.createElement('button');
+                runBtn.className = 'run-btn';
+                runBtn.textContent = 'Jalankan Bot';
+                runBtn.onclick = () => runBot(session);
+                
+                const editOwnerBtn = document.createElement('button');
+                editOwnerBtn.className = 'edit-btn';
+                editOwnerBtn.textContent = 'Edit Owner';
+                editOwnerBtn.onclick = () => {
+                    sessionForOwnerSelect.value = session;
+                    loadOwnerNumber();
+                    // Scroll ke bagian pengaturan owner
+                    document.querySelector('.owner-settings').scrollIntoView({ behavior: 'smooth' });
+                };
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = 'Hapus';
+                deleteBtn.onclick = () => deleteSession(session);
+                
+                actionsDiv.appendChild(runBtn);
+                actionsDiv.appendChild(editOwnerBtn);
+                actionsDiv.appendChild(deleteBtn);
+                
+                sessionItem.appendChild(sessionName);
+                sessionItem.appendChild(actionsDiv);
+                
+                sessionsListDiv.appendChild(sessionItem);
+            });
+        }
+        
+        function updateSessionsForOwner(sessions) {
+            // Simpan pilihan yang dipilih saat ini
+            const currentSelection = sessionForOwnerSelect.value;
+            
+            // Kosongkan dropdown kecuali opsi default
+            sessionForOwnerSelect.innerHTML = '<option value="">-- Pilih Sesi --</option>';
+            
+            // Tambahkan sesi yang tersedia
+            sessions.forEach(session => {
+                const option = document.createElement('option');
+                option.value = session;
+                option.textContent = session;
+                sessionForOwnerSelect.appendChild(option);
+            });
+            
+            // Kembalikan pilihan sebelumnya jika masih ada
+            if (currentSelection && sessions.includes(currentSelection)) {
+                sessionForOwnerSelect.value = currentSelection;
+                loadOwnerNumber();
+            }
+        }
+        
+        async function loadOwnerNumber() {
+            const sessionName = sessionForOwnerSelect.value;
+            
+            if (!sessionName) {
+                ownerSettingsContent.style.display = 'none';
+                return;
+            }
+            
+            try {
+                showStatus('info', 'Memuat nomor owner...');
+                
+                const response = await fetch(`/api/owner/${sessionName}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    ownerNumberInput.value = data.owner;
+                    ownerSettingsContent.style.display = 'block';
+                    showStatus('success', 'Nomor owner berhasil dimuat');
+                } else {
+                    showStatus('error', 'Gagal memuat nomor owner: ' + data.error);
+                    ownerSettingsContent.style.display = 'none';
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal terhubung ke server: ' + error.message);
+                ownerSettingsContent.style.display = 'none';
+            }
+        }
+        
+        function formatPhoneNumber(phoneNumber) {
+            // Hapus semua karakter non-digit
+            let cleaned = phoneNumber.replace(/\D/g, '');
+            
+            // Pastikan dimulai dengan kode negara Indonesia (62)
+            if (cleaned.startsWith('0')) {
+                cleaned = '62' + cleaned.substring(1);
+            } else if (!cleaned.startsWith('62')) {
+                cleaned = '62' + cleaned;
+            }
+            
+            return cleaned;
+        }
+        
+        // Tambahkan event untuk memformat nomor saat input kehilangan fokus
+        ownerNumberInput.addEventListener('blur', function() {
+            this.value = formatPhoneNumber(this.value);
+        });
+        
+        async function saveOwnerNumber() {
+            const sessionName = sessionForOwnerSelect.value;
+            const ownerNumber = ownerNumberInput.value.trim();
+            
+            if (!sessionName) {
+                showStatus('error', 'Silakan pilih sesi terlebih dahulu');
+                return;
+            }
+            
+            if (!ownerNumber) {
+                showStatus('error', 'Nomor owner tidak boleh kosong');
+                return;
+            }
+            
+            try {
+                showStatus('info', 'Menyimpan nomor owner...');
+                
+                const response = await fetch(`/api/owner/${sessionName}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ownerNumber })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    ownerNumberInput.value = data.owner;
+                    showStatus('success', data.message);
+                } else {
+                    showStatus('error', data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal menyimpan nomor owner: ' + error.message);
+            }
+        }
+        
+        async function loadRunningBots() {
+            try {
+                showStatus('info', 'Memuat daftar bot yang sedang berjalan...');
+                
+                const response = await fetch('/api/running-bots');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayRunningBots(data.bots);
+                    showStatus('success', 'Daftar bot berhasil dimuat');
+                } else {
+                    showStatus('error', 'Gagal memuat daftar bot: ' + data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal terhubung ke server: ' + error.message);
+            }
+        }
+        
+        function displayRunningBots(bots) {
+            runningBotsListDiv.innerHTML = '';
+            
+            if (bots.length === 0) {
+                runningBotsListDiv.innerHTML = '<p>Tidak ada bot yang sedang berjalan</p>';
+                return;
+            }
+            
+            bots.forEach(bot => {
+                const botItem = document.createElement('div');
+                botItem.className = 'session-item';
+                
+                const botInfo = document.createElement('div');
+                botInfo.className = 'bot-info';
+                
+                const botName = document.createElement('span');
+                botName.className = 'bot-name';
+                botName.textContent = bot.name;
+                
+                const botStatus = document.createElement('span');
+                botStatus.className = `bot-status ${bot.status === 'online' ? 'online' : 'offline'}`;
+                botStatus.textContent = bot.status;
+                
+                const botStats = document.createElement('span');
+                botStats.className = 'bot-stats';
+                botStats.textContent = `RAM: ${Math.round(bot.memory / (1024 * 1024))}MB | CPU: ${bot.cpu.toFixed(1)}%`;
+                
+                botInfo.appendChild(botName);
+                botInfo.appendChild(botStatus);
+                botInfo.appendChild(botStats);
+                
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'session-actions';
+                
+                const stopBtn = document.createElement('button');
+                stopBtn.className = 'delete-btn';
+                stopBtn.textContent = 'Hentikan';
+                stopBtn.onclick = () => stopBot(bot.name);
+                
+                actionsDiv.appendChild(stopBtn);
+                
+                botItem.appendChild(botInfo);
+                botItem.appendChild(actionsDiv);
+                
+                runningBotsListDiv.appendChild(botItem);
+            });
+        }
+        
+        async function createNewSession() {
+            const sessionName = sessionNameInput.value.trim();
+            
+            if (!sessionName) {
+                showStatus('error', 'Nama sesi tidak boleh kosong');
+                return;
+            }
+            
+            try {
+                showStatus('info', 'Membuat sesi baru...');
+                
+                const response = await fetch('/api/create-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentSession = sessionName;
+                    showStatus('info', 'Menunggu QR code...');
+                    socket.emit('request-qr', sessionName);
+                } else {
+                    showStatus('error', data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal membuat sesi: ' + error.message);
+            }
+        }
+        
+        async function runBot(sessionName) {
+            try {
+                showStatus('info', `Menjalankan bot ${sessionName} di background...`);
+                
+                const response = await fetch('/api/run-bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('success', data.message);
+                    // Tunggu sebentar lalu refresh daftar bot yang berjalan
+                    setTimeout(loadRunningBots, 2000);
+                } else {
+                    showStatus('error', data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal menjalankan bot: ' + error.message);
+            }
+        }
+        
+        async function stopBot(sessionName) {
+            if (!confirm(`Apakah Anda yakin ingin menghentikan bot ${sessionName}?`)) {
+                return;
+            }
+            
+            try {
+                showStatus('info', `Menghentikan bot ${sessionName}...`);
+                
+                const response = await fetch('/api/stop-bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('success', data.message);
+                    loadRunningBots();
+                } else {
+                    showStatus('error', data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal menghentikan bot: ' + error.message);
+            }
+        }
+        
+        async function deleteSession(sessionName) {
+            if (!confirm(`Apakah Anda yakin ingin menghapus sesi ${sessionName}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/delete-session/${sessionName}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('success', `Sesi ${sessionName} berhasil dihapus`);
+                    loadSessions();
+                } else {
+                    showStatus('error', data.error);
+                }
+            } catch (error) {
+                showStatus('error', 'Gagal menghapus sesi: ' + error.message);
+            }
+        }
+        
+        function handleQRCode(data) {
+            console.log('QR code received:', data);
+            
+            if (data.sessionName !== currentSession) {
+                console.log('QR code is not for current session, ignoring');
+                return;
+            }
+            
+            // Generate QR code
+            const typeNumber = 0;
+            const errorCorrectionLevel = 'L';
+            const qr = qrcode(typeNumber, errorCorrectionLevel);
+            qr.addData(data.qr);
+            qr.make();
+            
+            const qrImage = qr.createImgTag(5);
+            qrcodeDiv.innerHTML = qrImage;
+            
+            // Make sure the QR code is visible
+            qrcodeDiv.style.display = 'block';
+            showStatus('info', 'Silakan scan QR code dengan WhatsApp Anda');
+            
+            console.log('QR code displayed in UI');
+        }
+        
+        function handleConnected(data) {
+            if (data.sessionName !== currentSession) return;
+            
+            qrcodeDiv.innerHTML = '';
+            showStatus('success', `Berhasil terhubung dengan nomor ${data.user.id.split(':')[0]}`);
+            loadSessions();
+        }
+        
+        function handleError(message) {
+            showStatus('error', message);
+        }
+        
+        function showStatus(type, message) {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+        
+        // Functions untuk login pairing
+        async function requestPairingCode() {
+            const sessionName = sessionNameInput.value.trim();
+            const phoneNumber = phoneNumberInput.value.trim();
+            
+            if (!sessionName) {
+                showPairingStatus('error', 'Nama sesi tidak boleh kosong');
+                return;
+            }
+            
+            if (!phoneNumber) {
+                showPairingStatus('error', 'Nomor WhatsApp tidak boleh kosong');
+                return;
+            }
+            
+            try {
+                showPairingStatus('info', 'Meminta kode pairing...');
+                pairingCodeDisplay.style.display = 'none';
+                
+                const response = await fetch('/api/request-pairing-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionName, phoneNumber })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    pairingSessionName = sessionName;
+                    showPairingStatus('success', data.message);
+                    displayPairingCode(data.pairingCode, data.expiresIn);
+                    startPairingStatusCheck();
+                } else {
+                    showPairingStatus('error', data.error);
+                }
+            } catch (error) {
+                showPairingStatus('error', 'Gagal meminta kode pairing: ' + error.message);
+            }
+        }
+        
+        function displayPairingCode(code, expiresIn) {
+            pairingCodeDiv.textContent = code;
+            pairingCodeDisplay.style.display = 'block';
+            
+            // Tampilkan timer
+            updatePairingTimer(expiresIn);
+            
+            // Set interval untuk update timer
+            if (pairingInterval) {
+                clearInterval(pairingInterval);
+            }
+            
+            let remainingTime = expiresIn;
+            pairingInterval = setInterval(() => {
+                remainingTime--;
+                if (remainingTime <= 0) {
+                    clearInterval(pairingInterval);
+                    pairingCodeDisplay.style.display = 'none';
+                    showPairingStatus('error', 'Kode pairing sudah kedaluwarsa. Silakan minta kode baru.');
+                } else {
+                    updatePairingTimer(remainingTime);
+                }
+            }, 1000);
+        }
+        
+        function updatePairingTimer(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            pairingTimerDiv.textContent = `Kode berlaku selama: ${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+        
+        async function startPairingStatusCheck() {
+            // Periksa status pairing setiap 3 detik
+            const statusCheckInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/pairing-status/${pairingSessionName}`);
+                    const data = await response.json();
+                    console.log('Pairing status check:', data);
+                    
+                    if (data.success) {
+                        if (data.status === 'connected') {
+                            // Berhasil terhubung
+                            clearInterval(statusCheckInterval);
+                            if (pairingInterval) {
+                                clearInterval(pairingInterval);
+                            }
+                            
+                            pairingCodeDisplay.style.display = 'none';
+                            showPairingStatus('success', `WhatsApp berhasil terhubung dengan nomor ${data.user ? data.user.id.split(':')[0] : 'Unknown'}`);
+                            
+                            // Tampilkan notifikasi sukses yang lebih menarik
+                            const successMessage = document.createElement('div');
+                            successMessage.innerHTML = `
+                                <div style="margin-top: 20px; text-align: center;">
+                                    <h3 style="color: #28a745;">✅ Koneksi Berhasil!</h3>
+                                    <p>Bot WhatsApp Anda siap digunakan.</p>
+                                    <button onclick="runBot('${pairingSessionName}')" class="run-btn" style="margin-top: 10px;">
+                                        Jalankan Bot Sekarang
+                                    </button>
+                                </div>
+                            `;
+                            pairingStatusDiv.parentNode.insertBefore(successMessage, pairingStatusDiv.nextSibling);
+                            
+                            // Refresh daftar sesi
+                            loadSessions();
+                        } else if (data.status === 'expired') {
+                            // Kode kedaluwarsa
+                            clearInterval(statusCheckInterval);
+                            if (pairingInterval) {
+                                clearInterval(pairingInterval);
+                            }
+                            
+                            pairingCodeDisplay.style.display = 'none';
+                            showPairingStatus('error', 'Kode pairing sudah kedaluwarsa. Silakan minta kode baru.');
+                        } else if (data.status === 'none') {
+                            // Tidak ada permintaan pairing aktif
+                            clearInterval(statusCheckInterval);
+                            if (pairingInterval) {
+                                clearInterval(pairingInterval);
+                            }
+                            
+                            pairingCodeDisplay.style.display = 'none';
+                            showPairingStatus('error', 'Sesi pairing tidak ditemukan. Silakan minta kode baru.');
+                        } else if (data.status === 'pending') {
+                            // Update the timer if available
+                            if (data.expiresIn) {
+                                updatePairingTimer(data.expiresIn);
+                            }
+                            
+                            // Keep waiting with a more informative message
+                            showPairingStatus('info', 'Menunggu koneksi... Pastikan Anda memasukkan kode pairing di aplikasi WhatsApp Anda.');
+                        }
+                        // Jika status masih 'pending', lanjutkan polling
+                    }
+                } catch (error) {
+                    console.error('Error saat memeriksa status pairing:', error);
+                    showPairingStatus('error', 'Gagal memeriksa status koneksi: ' + error.message);
+                }
+            }, 3000);
+            
+            // Hentikan polling setelah 5 menit untuk mencegah polling tanpa batas
+            setTimeout(() => {
+                clearInterval(statusCheckInterval);
+                showPairingStatus('error', 'Batas waktu pengecekan koneksi telah habis. Silakan muat ulang halaman jika koneksi belum berhasil.');
+            }, 5 * 60 * 1000);
+        }
+        
+        function showPairingStatus(type, message) {
+            pairingStatusDiv.className = `status ${type}`;
+            pairingStatusDiv.textContent = message;
+            pairingStatusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
